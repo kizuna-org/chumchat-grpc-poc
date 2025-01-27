@@ -20,6 +20,31 @@ import (
 )
 
 func main() {
+	speechToText(func(resp *speechpb.StreamingRecognizeResponse) {
+		for _, result := range resp.Results {
+			fmt.Printf("Result: %+v\n", result)
+
+			if len(result.Alternatives) > 0 {
+				trans := result.Alternatives[0].Transcript
+				ret, err := generateContentFromText(trans, "chumchat")
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				for _, part := range ret.Candidates[0].Content.Parts {
+					fmt.Printf("Text: %s\n", part)
+					filename, err := generateSpeech(fmt.Sprint(part))
+					if err != nil {
+						log.Fatal(err)
+					}
+					fmt.Printf("Audio file: %s\n", filename)
+				}
+			}
+		}
+	})
+}
+
+func speechToText(onRes func(*speechpb.StreamingRecognizeResponse)) {
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s <AUDIOFILE>\n", filepath.Base(os.Args[0]))
 		fmt.Fprintf(os.Stderr, "<AUDIOFILE> must be a path to a local audio file. Audio file must be a 16-bit signed little-endian encoded with a sample rate of 16000.\n")
@@ -41,7 +66,6 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	// Send the initial configuration message.
 	if err := stream.Send(&speechpb.StreamingRecognizeRequest{
 		StreamingRequest: &speechpb.StreamingRecognizeRequest_StreamingConfig{
 			StreamingConfig: &speechpb.StreamingRecognitionConfig{
@@ -76,7 +100,6 @@ func main() {
 				}
 			}
 			if err == io.EOF {
-				// Nothing else to pipe, close the stream.
 				if err := stream.CloseSend(); err != nil {
 					log.Fatalf("Could not close stream: %v", err)
 				}
@@ -100,25 +123,9 @@ func main() {
 		if err := resp.Error; err != nil {
 			log.Fatalf("Could not recognize: %v", err)
 		}
-		for _, result := range resp.Results {
-			fmt.Printf("Result: %+v\n", result)
 
-			if len(result.Alternatives) > 0 {
-				trans := result.Alternatives[0].Transcript
-				ret, err := generateContentFromText(trans, "chumchat")
-				if err != nil {
-					log.Fatal(err)
-				}
-
-				for _, part := range ret.Candidates[0].Content.Parts {
-					fmt.Printf("Text: %s\n", part)
-					filename, err := generateSpeech(fmt.Sprint(part))
-					if err != nil {
-						log.Fatal(err)
-					}
-					fmt.Printf("Audio file: %s\n", filename)
-				}
-			}
+		if onRes != nil {
+			onRes(resp)
 		}
 	}
 }
@@ -148,7 +155,6 @@ func generateContentFromText(text string, projectID string) (*genai.GenerateCont
 }
 
 func generateSpeech(text string) (string, error) {
-	// Instantiates a client.
 	ctx := context.Background()
 
 	client, err := texttospeech.NewClient(ctx, option.WithCredentialsFile("./chumchat.json"))
@@ -157,20 +163,14 @@ func generateSpeech(text string) (string, error) {
 	}
 	defer client.Close()
 
-	// Perform the text-to-speech request on the text input with the selected
-	// voice parameters and audio file type.
 	req := texttospeechpb.SynthesizeSpeechRequest{
-		// Set the text input to be synthesized.
 		Input: &texttospeechpb.SynthesisInput{
 			InputSource: &texttospeechpb.SynthesisInput_Text{Text: text},
 		},
-		// Build the voice request, select the language code ("en-US") and the SSML
-		// voice gender ("neutral").
 		Voice: &texttospeechpb.VoiceSelectionParams{
 			LanguageCode: "ja-JP",
 			SsmlGender:   texttospeechpb.SsmlVoiceGender_NEUTRAL,
 		},
-		// Select the type of audio file you want returned.
 		AudioConfig: &texttospeechpb.AudioConfig{
 			AudioEncoding: texttospeechpb.AudioEncoding_MP3,
 		},
@@ -181,7 +181,6 @@ func generateSpeech(text string) (string, error) {
 		return "", err
 	}
 
-	// The resp's AudioContent is binary.
 	filename := "output.mp3"
 	err = os.WriteFile(filename, resp.AudioContent, 0644)
 	if err != nil {
