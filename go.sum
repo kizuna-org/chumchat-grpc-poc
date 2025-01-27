@@ -51,6 +51,8 @@ github.com/Microsoft/hcsshim v0.12.9 h1:2zJy5KA+l0loz1HzEGqyNnjd3fyZA31ZBCGKacp6
 github.com/Microsoft/hcsshim v0.12.9/go.mod h1:fJ0gkFAna6ukt0bLdKB8djt4XIJhF/vEPuoIWYVvZ8Y=
 github.com/antlr4-go/antlr/v4 v4.13.1 h1:SqQKkuVZ+zWkMMNkjy5FZe5mr5WURWnlpmOuzYWrPrQ=
 github.com/antlr4-go/antlr/v4 v4.13.1/go.mod h1:GKmUxMtwp6ZgGwZSva4eWPC5mS6vUAmOABFgjdkM7Nw=
+github.com/baabaaox/go-webrtcvad v1.0.2 h1:EZ1W05TWAyxZdWiTpxpq3jmAb2V2/XVbQXRUPJnZh6Q=
+github.com/baabaaox/go-webrtcvad v1.0.2/go.mod h1:WWp8CHKedSy5vGC2hZ6OQnxaQinuwXEaGykW/6PH7rA=
 github.com/bufbuild/buf v1.50.0 h1:gm/GtEUAkYaO27FgUesY4NpcwOpOdJgygjRKcdt41zE=
 github.com/bufbuild/buf v1.50.0/go.mod h1:tlpWuRe4EjA4w7O+Z/R2k2Df2eJtKsds2hofIIPEoSY=
 github.com/bufbuild/protocompile v0.14.1 h1:iA73zAf/fyljNjQKwYzUHD6AD4R8KMasmwa/FBatYVw=
@@ -189,6 +191,8 @@ github.com/ledongthuc/pdf v0.0.0-20220302134840-0c2507a12d80/go.mod h1:imJHygn/1
 github.com/mailru/easyjson v0.7.7/go.mod h1:xzfreul335JAWq5oZzymOObrkdz5UnU4kGfJJLY9Nlc=
 github.com/mattn/go-isatty v0.0.20 h1:xfD0iDuEKnDkl03q4limB+vH+GxLEtL/jb4xVJSWWEY=
 github.com/mattn/go-isatty v0.0.20/go.mod h1:W+V8PltTTMOvKvAeJH7IuucS94S2C6jfK/D7dTCTo3Y=
+github.com/maxhawkins/go-webrtcvad v0.0.0-20210121163624-be60036f3083 h1:0JDcvP4R28p6+u8VIHCwYx7UwiHZ074INz3C397oc9s=
+github.com/maxhawkins/go-webrtcvad v0.0.0-20210121163624-be60036f3083/go.mod h1:YdrZ05xnooeP54y7m+/UvI23O1Td46PjWkLJu1VLObM=
 github.com/mitchellh/go-homedir v1.1.0 h1:lukF9ziXFxDFPkA1vsr5zpc1XuPDn/wFntq5mG+4E0Y=
 github.com/mitchellh/go-homedir v1.1.0/go.mod h1:SfyaCUpYCn1Vlf4IUYiD9fPX4A5wJrkLzIz1N1q0pr0=
 github.com/moby/docker-image-spec v1.3.1 h1:jMKff3w6PgbfSa69GfNg+zN/XLhfXJGnEx3Nl2EsFP0=

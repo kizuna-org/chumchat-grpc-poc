@@ -5,6 +5,11 @@ go 1.23.5
 require cloud.google.com/go/vertexai v0.13.3
 
 require (
+	github.com/baabaaox/go-webrtcvad v1.0.2 // indirect
+	github.com/maxhawkins/go-webrtcvad v0.0.0-20210121163624-be60036f3083 // indirect
+)
+
+require (
 	buf.build/gen/go/bufbuild/bufplugin/protocolbuffers/go v1.36.3-20241031151143-70f632351282.1 // indirect
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.3-20241127180247-a33202765966.1 // indirect
 	buf.build/gen/go/bufbuild/registry/connectrpc/go v1.18.1-20250106231242-56271afbd6ce.1 // indirect
