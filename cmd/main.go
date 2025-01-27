@@ -27,24 +27,24 @@ func main() {
 		for _, result := range resp.Results {
 			fmt.Printf("Result: %+v\n", result)
 
-			if len(result.Alternatives) > 0 {
-				trans := result.Alternatives[0].Transcript
-				ret, err := generateContentFromText(trans, "chumchat")
-				if err != nil {
-					log.Fatal(err)
-				}
+			// if len(result.Alternatives) > 0 {
+			// 	trans := result.Alternatives[0].Transcript
+			// 	ret, err := generateContentFromText(trans, "chumchat")
+			// 	if err != nil {
+			// 		log.Fatal(err)
+			// 	}
 
-				for _, part := range ret.Candidates[0].Content.Parts {
-					fmt.Printf("Text: %s\n", part)
-					fmt.Println("time:", time.Now().UnixMilli()-start.UnixMilli())
-					filename, err := generateSpeech(fmt.Sprint(part))
-					if err != nil {
-						log.Fatal(err)
-					}
-					fmt.Printf("Audio file: %s\n", filename)
-					fmt.Println("time:", time.Now().UnixMilli()-start.UnixMilli())
-				}
-			}
+			// 	for _, part := range ret.Candidates[0].Content.Parts {
+			// 		fmt.Printf("Text: %s\n", part)
+			// 		fmt.Println("time:", time.Now().UnixMilli()-start.UnixMilli())
+			// 		filename, err := generateSpeech(fmt.Sprint(part))
+			// 		if err != nil {
+			// 			log.Fatal(err)
+			// 		}
+			// 		fmt.Printf("Audio file: %s\n", filename)
+			// 		fmt.Println("time:", time.Now().UnixMilli()-start.UnixMilli())
+			// 	}
+			// }
 		}
 	}
 
@@ -69,6 +69,7 @@ func speechToTextFromMic(onRes func(*speechpb.StreamingRecognizeResponse)) {
 	if err := stream.Send(&speechpb.StreamingRecognizeRequest{
 		StreamingRequest: &speechpb.StreamingRecognizeRequest_StreamingConfig{
 			StreamingConfig: &speechpb.StreamingRecognitionConfig{
+				InterimResults: true,
 				Config: &speechpb.RecognitionConfig{
 					Encoding:        speechpb.RecognitionConfig_LINEAR16,
 					SampleRateHertz: 16000,
