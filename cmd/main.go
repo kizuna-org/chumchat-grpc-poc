@@ -1,4 +1,192 @@
 package main
 
+import (
+	"context"
+	"flag"
+	"fmt"
+	"io"
+
+	"log"
+	"os"
+	"path/filepath"
+
+	speech "cloud.google.com/go/speech/apiv1"
+	"cloud.google.com/go/speech/apiv1/speechpb"
+	texttospeech "cloud.google.com/go/texttospeech/apiv1"
+	"cloud.google.com/go/texttospeech/apiv1/texttospeechpb"
+	"google.golang.org/api/option"
+
+	"cloud.google.com/go/vertexai/genai"
+)
+
 func main() {
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: %s <AUDIOFILE>\n", filepath.Base(os.Args[0]))
+		fmt.Fprintf(os.Stderr, "<AUDIOFILE> must be a path to a local audio file. Audio file must be a 16-bit signed little-endian encoded with a sample rate of 16000.\n")
+
+	}
+	flag.Parse()
+	if len(flag.Args()) != 1 {
+		log.Fatal("Please pass path to your local audio file as a command line argument")
+	}
+	audioFile := flag.Arg(0)
+
+	ctx := context.Background()
+
+	client, err := speech.NewClient(ctx, option.WithCredentialsFile("./chumchat.json"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	stream, err := client.StreamingRecognize(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+	// Send the initial configuration message.
+	if err := stream.Send(&speechpb.StreamingRecognizeRequest{
+		StreamingRequest: &speechpb.StreamingRecognizeRequest_StreamingConfig{
+			StreamingConfig: &speechpb.StreamingRecognitionConfig{
+				Config: &speechpb.RecognitionConfig{
+					Encoding:        speechpb.RecognitionConfig_LINEAR16,
+					SampleRateHertz: 16000,
+					LanguageCode:    "ja-JP",
+				},
+			},
+		},
+	}); err != nil {
+		log.Fatal(err)
+	}
+
+	f, err := os.Open(audioFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer f.Close()
+
+	go func() {
+		buf := make([]byte, 1024)
+		for {
+			n, err := f.Read(buf)
+			if n > 0 {
+				if err := stream.Send(&speechpb.StreamingRecognizeRequest{
+					StreamingRequest: &speechpb.StreamingRecognizeRequest_AudioContent{
+						AudioContent: buf[:n],
+					},
+				}); err != nil {
+					log.Printf("Could not send audio: %v", err)
+				}
+			}
+			if err == io.EOF {
+				// Nothing else to pipe, close the stream.
+				if err := stream.CloseSend(); err != nil {
+					log.Fatalf("Could not close stream: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				log.Printf("Could not read from %s: %v", audioFile, err)
+				continue
+			}
+		}
+	}()
+
+	for {
+		resp, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			log.Fatalf("Cannot stream results: %v", err)
+		}
+		if err := resp.Error; err != nil {
+			log.Fatalf("Could not recognize: %v", err)
+		}
+		for _, result := range resp.Results {
+			fmt.Printf("Result: %+v\n", result)
+
+			if len(result.Alternatives) > 0 {
+				trans := result.Alternatives[0].Transcript
+				ret, err := generateContentFromText(trans, "chumchat")
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				for _, part := range ret.Candidates[0].Content.Parts {
+					fmt.Printf("Text: %s\n", part)
+					filename, err := generateSpeech(fmt.Sprint(part))
+					if err != nil {
+						log.Fatal(err)
+					}
+					fmt.Printf("Audio file: %s\n", filename)
+				}
+			}
+		}
+	}
+}
+
+func generateContentFromText(text string, projectID string) (*genai.GenerateContentResponse, error) {
+	modelName := "gemini-2.0-flash-exp"
+	location := "us-central1"
+
+	ctx := context.Background()
+	client, err := genai.NewClient(ctx, projectID, location)
+	if err != nil {
+		return nil, fmt.Errorf("error creating client: %w", err)
+	}
+	gemini := client.GenerativeModel(modelName)
+	gemini.SystemInstruction = &genai.Content{
+		Parts: []genai.Part{genai.Text(`
+		Please interact in Japanese.
+		`)},
+	}
+	prompt := genai.Text(text)
+
+	resp, err := gemini.GenerateContent(ctx, prompt)
+	if err != nil {
+		return nil, fmt.Errorf("error generating content: %w", err)
+	}
+	return resp, nil
+}
+
+func generateSpeech(text string) (string, error) {
+	// Instantiates a client.
+	ctx := context.Background()
+
+	client, err := texttospeech.NewClient(ctx, option.WithCredentialsFile("./chumchat.json"))
+	if err != nil {
+		return "", err
+	}
+	defer client.Close()
+
+	// Perform the text-to-speech request on the text input with the selected
+	// voice parameters and audio file type.
+	req := texttospeechpb.SynthesizeSpeechRequest{
+		// Set the text input to be synthesized.
+		Input: &texttospeechpb.SynthesisInput{
+			InputSource: &texttospeechpb.SynthesisInput_Text{Text: text},
+		},
+		// Build the voice request, select the language code ("en-US") and the SSML
+		// voice gender ("neutral").
+		Voice: &texttospeechpb.VoiceSelectionParams{
+			LanguageCode: "ja-JP",
+			SsmlGender:   texttospeechpb.SsmlVoiceGender_NEUTRAL,
+		},
+		// Select the type of audio file you want returned.
+		AudioConfig: &texttospeechpb.AudioConfig{
+			AudioEncoding: texttospeechpb.AudioEncoding_MP3,
+		},
+	}
+
+	resp, err := client.SynthesizeSpeech(ctx, &req)
+	if err != nil {
+		return "", err
+	}
+
+	// The resp's AudioContent is binary.
+	filename := "output.mp3"
+	err = os.WriteFile(filename, resp.AudioContent, 0644)
+	if err != nil {
+		return "", err
+	}
+	fmt.Printf("Audio content written to file: %v\n", filename)
+	return filename, nil
 }
