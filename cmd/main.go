@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"time"
 
 	"log"
 	"os"
@@ -14,99 +15,79 @@ import (
 	"cloud.google.com/go/speech/apiv1/speechpb"
 	texttospeech "cloud.google.com/go/texttospeech/apiv1"
 	"cloud.google.com/go/texttospeech/apiv1/texttospeechpb"
-	"github.com/maxhawkins/go-webrtcvad"
+	"github.com/kizuna-org/go-webrtcvad"
 	"google.golang.org/api/option"
 
 	"cloud.google.com/go/vertexai/genai"
 )
 
 func main() {
-	audioFile, err := os.Open("test.pcm")
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer audioFile.Close()
+	start := time.Now()
+	onRes := func(resp *speechpb.StreamingRecognizeResponse) {
+		fmt.Println("time:", time.Now().UnixMilli()-start.UnixMilli())
+		for i, result := range resp.Results {
+			if i != 0 {
+				fmt.Println("multiple results")
+				continue
+			}
+			if result.IsFinal {
+				continue
+			}
 
-	vad, err := webrtcvad.New()
-	if err != nil {
-		log.Fatal(err)
-	}
+			fmt.Printf("Result: %+v\n", result)
 
-	if err := vad.SetMode(2); err != nil {
-		log.Fatal(err)
-	}
+			// if len(result.Alternatives) > 0 {
+			// 	trans := result.Alternatives[0].Transcript
+			// 	ret, err := generateContentFromText(trans, "chumchat")
+			// 	if err != nil {
+			// 		log.Fatal(err)
+			// 	}
 
-	rate := 16000 // kHz
-	frame := make([]byte, 160*2)
-
-	if ok := vad.ValidRateAndFrameLength(rate, len(frame)); !ok {
-		log.Fatal("invalid rate or frame length")
-	}
-	for {
-		_, err := audioFile.Read(frame)
-		if err == io.EOF || err == io.ErrUnexpectedEOF {
-			break
+			// 	for _, part := range ret.Candidates[0].Content.Parts {
+			// 		fmt.Printf("Text: %s\n", part)
+			// 		fmt.Println("time:", time.Now().UnixMilli()-start.UnixMilli())
+			// 		filename, err := generateSpeech(fmt.Sprint(part))
+			// 		if err != nil {
+			// 			log.Fatal(err)
+			// 		}
+			// 		fmt.Printf("Audio file: %s\n", filename)
+			// 		fmt.Println("time:", time.Now().UnixMilli()-start.UnixMilli())
+			// 	}
+			// }
 		}
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		active, err := vad.Process(rate, frame)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		fmt.Println(active)
 	}
 
+	if len(os.Args) > 1 {
+		speechToTextFromFile(onRes)
+	} else {
+		speechToTextFromMic(onRes)
+	}
 }
-
-// func main() {
-// 	start := time.Now()
-// 	onRes := func(resp *speechpb.StreamingRecognizeResponse) {
-// 		fmt.Println("time:", time.Now().UnixMilli()-start.UnixMilli())
-// 		for _, result := range resp.Results {
-// 			fmt.Printf("Result: %+v\n", result)
-
-// 			// if len(result.Alternatives) > 0 {
-// 			// 	trans := result.Alternatives[0].Transcript
-// 			// 	ret, err := generateContentFromText(trans, "chumchat")
-// 			// 	if err != nil {
-// 			// 		log.Fatal(err)
-// 			// 	}
-
-// 			// 	for _, part := range ret.Candidates[0].Content.Parts {
-// 			// 		fmt.Printf("Text: %s\n", part)
-// 			// 		fmt.Println("time:", time.Now().UnixMilli()-start.UnixMilli())
-// 			// 		filename, err := generateSpeech(fmt.Sprint(part))
-// 			// 		if err != nil {
-// 			// 			log.Fatal(err)
-// 			// 		}
-// 			// 		fmt.Printf("Audio file: %s\n", filename)
-// 			// 		fmt.Println("time:", time.Now().UnixMilli()-start.UnixMilli())
-// 			// 	}
-// 			// }
-// 		}
-// 	}
-
-// 	if len(os.Args) > 1 {
-// 		speechToTextFromFile(onRes)
-// 	} else {
-// 		speechToTextFromMic(onRes)
-// 	}
-// }
 
 func speechToTextFromMic(onRes func(*speechpb.StreamingRecognizeResponse)) {
 	const (
 		// VadMode vad mode
-		VadMode = 2
+		VadMode = 3
 		// SampleRate sample rate
 		SampleRate = 16000
 		// BitDepth bit depth
 		BitDepth = 16
 		// FrameDuration frame duration
-		FrameDuration = 1
+		FrameDuration = 20
 	)
+
+	var lastRes *speechpb.StreamingRecognizeResponse
+
+	vadInst := webrtcvad.Create()
+	defer webrtcvad.Free(vadInst)
+	err := webrtcvad.Init(vadInst)
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = webrtcvad.SetMode(vadInst, VadMode)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	ctx := context.Background()
 
@@ -134,7 +115,7 @@ func speechToTextFromMic(onRes func(*speechpb.StreamingRecognizeResponse)) {
 	}
 
 	go func() {
-		buf := make([]byte, 1024)
+		buf := make([]byte, SampleRate/1000*FrameDuration*BitDepth/8) //1024)
 
 		for {
 			n, err := os.Stdin.Read(buf)
@@ -145,6 +126,20 @@ func speechToTextFromMic(onRes func(*speechpb.StreamingRecognizeResponse)) {
 
 			if n > 0 {
 				frame := buf[:n]
+
+				frameActive, err := webrtcvad.Process(vadInst, SampleRate, frame, 16000/1000*20)
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				// fmt.Println("Frame Active: ", frameActive)
+
+				if lastRes != nil && !frameActive {
+					if onRes != nil {
+						onRes(lastRes)
+						lastRes = nil
+					}
+				}
 
 				if err := stream.Send(&speechpb.StreamingRecognizeRequest{
 					StreamingRequest: &speechpb.StreamingRecognizeRequest_AudioContent{
@@ -183,9 +178,7 @@ func speechToTextFromMic(onRes func(*speechpb.StreamingRecognizeResponse)) {
 			log.Fatalf("Could not recognize: %v", err)
 		}
 
-		if onRes != nil {
-			onRes(resp)
-		}
+		lastRes = resp
 	}
 }
 
@@ -268,7 +261,6 @@ func speechToTextFromFile(onRes func(*speechpb.StreamingRecognizeResponse)) {
 		if err := resp.Error; err != nil {
 			log.Fatalf("Could not recognize: %v", err)
 		}
-
 		if onRes != nil {
 			onRes(resp)
 		}
