@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"time"
@@ -13,6 +15,7 @@ import (
 	"cloud.google.com/go/speech/apiv1/speechpb"
 	texttospeech "cloud.google.com/go/texttospeech/apiv1"
 	"cloud.google.com/go/texttospeech/apiv1/texttospeechpb"
+	"github.com/gordonklaus/portaudio"
 	"github.com/kizuna-org/go-webrtcvad"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
@@ -37,10 +40,66 @@ const (
 )
 
 const (
+	FramesPerBuffer = 1024
+)
+
+const (
 	VadFinishWaitSTT = 50 // ms
 )
 
+type AudioStream struct {
+	stream *portaudio.Stream
+	input  []int16
+	output []int16
+}
+
 func main() {
+	portaudio.Initialize()
+	defer portaudio.Terminate()
+
+	input := make([]int16, FramesPerBuffer)
+	output := make([]int16, FramesPerBuffer)
+
+	stream, err := portaudio.OpenDefaultStream(1, 1, SampleRate, FramesPerBuffer, input, output)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer stream.Close()
+
+	audioStream := &AudioStream{
+		stream: stream,
+		input:  input,
+		output: output,
+	}
+
+	err = stream.Start()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer stream.Stop()
+
+	// go func() {
+	// 	for {
+	// 		err = stream.Read()
+	// 		if err != nil {
+	// 			fmt.Println("stream.Read() failed:", err)
+	// 			return
+	// 		}
+
+	// 		// 入力データをそのまま出力データにコピー (エコーバック)
+	// 		for i := range input {
+	// 			output[i] = input[i]
+	// 		}
+
+	// 		err = stream.Write()
+	// 		if err != nil {
+	// 			fmt.Println("stream.Write() failed:", err)
+	// 			return
+	// 		}
+	// 		time.Sleep(time.Duration(FramesPerBuffer) * time.Second / time.Duration(SampleRate)) // 処理速度調整 (重要ではない)
+	// 	}
+	// }()
+
 	onRes := func(resp *speechpb.StreamingRecognizeResponse) {
 		fmt.Println("onRes:")
 		for i, result := range resp.Results {
@@ -76,10 +135,10 @@ func main() {
 		}
 	}
 
-	speechToTextFromMic(onRes)
+	speechToTextFromMic(audioStream, onRes)
 }
 
-func speechToTextFromMic(onRes func(*speechpb.StreamingRecognizeResponse)) {
+func speechToTextFromMic(audioStream *AudioStream, onRes func(*speechpb.StreamingRecognizeResponse)) {
 	var lastRes *speechpb.StreamingRecognizeResponse = nil
 	var frameActive = false
 	var lastActiveTime = time.Now()
@@ -121,50 +180,53 @@ func speechToTextFromMic(onRes func(*speechpb.StreamingRecognizeResponse)) {
 	}
 
 	go func() {
-		buf := make([]byte, SampleRate/1000*FrameDuration*BitDepth/8) //1024)
+		// buf := make([]byte, SampleRate/1000*FrameDuration*BitDepth/8) //1024)
 
 		for {
-			n, err := os.Stdin.Read(buf)
+			err := audioStream.stream.Read()
 			if err != nil && err != io.EOF {
 				log.Printf("Could not read from stdin: %v", err)
 				break
 			}
 
-			if n > 0 {
-				frame := buf[:n]
-
-				frameActive, err = webrtcvad.Process(vadInst, SampleRate, frame, 16000/1000*20)
-				if err != nil {
-					log.Fatal(err)
-				}
-
-				// fmt.Println("Frame Active: ", frameActive)
-
-				if frameActive {
-					lastActiveTime = time.Now()
-				}
-
-				if !frameActive && time.Since(lastActiveTime) > VadFinishWaitSTT*time.Millisecond {
-					fmt.Fprintln(os.Stderr, time.Now(), "Finish")
-					if lastRes != nil && onRes != nil {
-						fmt.Println("\n\n\n\n\n\n\n\n\n\n\n\n\n\nLatency: ", time.Since(lastActiveTime))
-						onRes(lastRes)
-						lastRes = nil
-					}
-
-					continue
-				} else {
-					fmt.Fprintln(os.Stderr, time.Now(), "active")
-				}
-
-				if err := stream.Send(&speechpb.StreamingRecognizeRequest{
-					StreamingRequest: &speechpb.StreamingRecognizeRequest_AudioContent{
-						AudioContent: frame,
-					},
-				}); err != nil {
-					log.Printf("Could not send audio: %v", err)
-				}
+			frame, err := Int16ToBytesBinary(audioStream.input, binary.LittleEndian)
+			if err != nil {
+				log.Fatal(err)
+				break
 			}
+
+			frameActive, err = webrtcvad.Process(vadInst, SampleRate, frame, 16000/1000*20)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			// fmt.Println("Frame Active: ", frameActive)
+
+			if frameActive {
+				lastActiveTime = time.Now()
+			}
+
+			if !frameActive && time.Since(lastActiveTime) > VadFinishWaitSTT*time.Millisecond {
+				// fmt.Fprintln(os.Stderr, time.Now(), "Finish")
+				if lastRes != nil && onRes != nil {
+					fmt.Println("\n\n\n\n\n\n\n\n\n\n\n\n\n\nLatency: ", time.Since(lastActiveTime))
+					onRes(lastRes)
+					lastRes = nil
+				}
+
+				continue
+			} else {
+				// fmt.Fprintln(os.Stderr, time.Now(), "active")
+			}
+
+			if err := stream.Send(&speechpb.StreamingRecognizeRequest{
+				StreamingRequest: &speechpb.StreamingRecognizeRequest_AudioContent{
+					AudioContent: frame,
+				},
+			}); err != nil {
+				log.Printf("Could not send audio: %v", err)
+			}
+
 			if err == io.EOF {
 				// Nothing else to pipe, close the stream.
 				if err := stream.CloseSend(); err != nil {
@@ -196,7 +258,7 @@ func speechToTextFromMic(onRes func(*speechpb.StreamingRecognizeResponse)) {
 
 		lastRes = resp
 
-		fmt.Fprintln(os.Stderr, time.Now(), "Response: ", resp)
+		// fmt.Fprintln(os.Stderr, time.Now(), "Response: ", resp)
 	}
 }
 
@@ -266,4 +328,12 @@ func generateSpeech(text string) (string, error) {
 	}
 	fmt.Printf("Audio content written to file: %v\n", filename)
 	return filename, nil
+}
+
+func Int16ToBytesBinary(ints []int16, order binary.ByteOrder) ([]byte, error) {
+	buf := new(bytes.Buffer)
+	if err := binary.Write(buf, order, ints); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
