@@ -1,4 +1,4 @@
-module kizuna-org/chumchat-grpc-poc
+module github.com/kizuna-org/chumchat-grpc-poc
 
 go 1.23.5
 
