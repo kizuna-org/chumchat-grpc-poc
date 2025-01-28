@@ -5,6 +5,7 @@ go 1.23.5
 require cloud.google.com/go/vertexai v0.13.3
 
 require (
+	github.com/gordonklaus/portaudio v0.0.0-20230709114228-aafa478834f5 // indirect
 	github.com/joho/godotenv v1.5.1 // indirect
 	github.com/kizuna-org/go-webrtcvad v0.0.0-20250128011137-afae24aad3f3 // indirect
 	github.com/tidwall/gjson v1.14.4 // indirect
