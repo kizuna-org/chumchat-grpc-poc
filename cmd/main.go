@@ -21,10 +21,23 @@ import (
 	"cloud.google.com/go/vertexai/genai"
 )
 
+const (
+	// VadMode vad mode
+	VadMode = 3
+	// SampleRate sample rate
+	SampleRate = 16000
+	// BitDepth bit depth
+	BitDepth = 16
+	// FrameDuration frame duration
+	FrameDuration = 20
+)
+
+const (
+	VadFinishWaitSTT = 100 // ms
+)
+
 func main() {
-	start := time.Now()
 	onRes := func(resp *speechpb.StreamingRecognizeResponse) {
-		fmt.Println("time:", time.Now().UnixMilli()-start.UnixMilli())
 		for i, result := range resp.Results {
 			if i != 0 {
 				fmt.Println("multiple results")
@@ -65,18 +78,9 @@ func main() {
 }
 
 func speechToTextFromMic(onRes func(*speechpb.StreamingRecognizeResponse)) {
-	const (
-		// VadMode vad mode
-		VadMode = 3
-		// SampleRate sample rate
-		SampleRate = 16000
-		// BitDepth bit depth
-		BitDepth = 16
-		// FrameDuration frame duration
-		FrameDuration = 20
-	)
-
-	var lastRes *speechpb.StreamingRecognizeResponse
+	var lastRes *speechpb.StreamingRecognizeResponse = nil
+	var frameActive = false
+	var lastActiveTime = time.Now()
 
 	vadInst := webrtcvad.Create()
 	defer webrtcvad.Free(vadInst)
@@ -127,18 +131,27 @@ func speechToTextFromMic(onRes func(*speechpb.StreamingRecognizeResponse)) {
 			if n > 0 {
 				frame := buf[:n]
 
-				frameActive, err := webrtcvad.Process(vadInst, SampleRate, frame, 16000/1000*20)
+				frameActive, err = webrtcvad.Process(vadInst, SampleRate, frame, 16000/1000*20)
 				if err != nil {
 					log.Fatal(err)
 				}
 
 				// fmt.Println("Frame Active: ", frameActive)
 
-				if lastRes != nil && !frameActive {
-					if onRes != nil {
+				if frameActive {
+					lastActiveTime = time.Now()
+				}
+
+				if !frameActive && time.Since(lastActiveTime) > VadFinishWaitSTT*time.Millisecond {
+					// fmt.Println(time.Since(lastActiveTime))
+					if lastRes != nil && onRes != nil {
 						onRes(lastRes)
 						lastRes = nil
 					}
+
+					continue
+				} else {
+					// fmt.Println("active")
 				}
 
 				if err := stream.Send(&speechpb.StreamingRecognizeRequest{
