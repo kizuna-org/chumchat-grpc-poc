@@ -6,10 +6,10 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"sync"
 	"time"
 
 	"log"
-	"os"
 
 	speech "cloud.google.com/go/speech/apiv1"
 	"cloud.google.com/go/speech/apiv1/speechpb"
@@ -24,7 +24,7 @@ import (
 )
 
 const sysPrompt = `
-Please interact in Japanese.
+Please interact in English.
 Please respond in 1-2 sentences.
 `
 
@@ -60,7 +60,10 @@ func main() {
 	input := make([]int16, FramesPerBuffer)
 	output := make([]int16, FramesPerBuffer)
 
-	stream, err := portaudio.OpenDefaultStream(1, 1, SampleRate, FramesPerBuffer, input, output)
+	var globalOutputMutex sync.Mutex
+	var globalOutput []int16
+
+	stream, err := portaudio.OpenDefaultStream(1, 1, SampleRate, FramesPerBuffer, &input, &output)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -78,27 +81,13 @@ func main() {
 	}
 	defer stream.Stop()
 
-	// go func() {
-	// 	for {
-	// 		err = stream.Read()
-	// 		if err != nil {
-	// 			fmt.Println("stream.Read() failed:", err)
-	// 			return
-	// 		}
+	ctx := context.Background()
 
-	// 		// 入力データをそのまま出力データにコピー (エコーバック)
-	// 		for i := range input {
-	// 			output[i] = input[i]
-	// 		}
-
-	// 		err = stream.Write()
-	// 		if err != nil {
-	// 			fmt.Println("stream.Write() failed:", err)
-	// 			return
-	// 		}
-	// 		time.Sleep(time.Duration(FramesPerBuffer) * time.Second / time.Duration(SampleRate)) // 処理速度調整 (重要ではない)
-	// 	}
-	// }()
+	ttsClient, err := texttospeech.NewClient(ctx, option.WithCredentialsFile("./chumchat.json"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer ttsClient.Close()
 
 	onRes := func(resp *speechpb.StreamingRecognizeResponse) {
 		fmt.Println("onRes:")
@@ -117,15 +106,70 @@ func main() {
 			if len(result.Alternatives) > 0 {
 				trans := result.Alternatives[0].Transcript
 				go func() {
-					err := generateContentFromText(trans, func(resp *genai.GenerateContentResponse) {
+					err := generateContentFromText(trans, func(resp *genai.GenerateContentResponse) error {
+
+						ttsStream, err := ttsClient.StreamingSynthesize(ctx)
+						if err != nil {
+							log.Fatal(err)
+						}
+						defer ttsStream.CloseSend()
+
+						ttsStream.Send(&texttospeechpb.StreamingSynthesizeRequest{
+							StreamingRequest: &texttospeechpb.StreamingSynthesizeRequest_StreamingConfig{
+								StreamingConfig: &texttospeechpb.StreamingSynthesizeConfig{
+									Voice: &texttospeechpb.VoiceSelectionParams{
+										LanguageCode: "en-US",
+										SsmlGender:   texttospeechpb.SsmlVoiceGender_NEUTRAL,
+										Name:         "en-US-Journey-D",
+									},
+									StreamingAudioConfig: &texttospeechpb.StreamingAudioConfig{
+										AudioEncoding:   texttospeechpb.AudioEncoding_PCM,
+										SampleRateHertz: 16000,
+									},
+								},
+							},
+						})
+
+						go func() {
+							for {
+								resp, err := ttsStream.Recv()
+								if err == io.EOF {
+									continue
+								}
+								if err != nil {
+									return
+								}
+								if ttsStream.Context().Err() != nil {
+									return
+								}
+
+								output, err = BytesToInt16Binary(resp.AudioContent, binary.LittleEndian)
+								if err != nil {
+									log.Fatal(err)
+								}
+
+								globalOutputMutex.Lock()
+								globalOutput = output
+								globalOutputMutex.Unlock()
+							}
+						}()
+
 						for _, part := range resp.Candidates[0].Content.Parts {
 							fmt.Printf("Text: %s\n", part)
-							// filename, err := generateSpeech(fmt.Sprint(part))
-							// if err != nil {
-							// 	log.Fatal(err)
-							// }
-							// fmt.Printf("Audio file: %s\n", filename)
+							text := fmt.Sprint(part)
+
+							err = ttsStream.Send(&texttospeechpb.StreamingSynthesizeRequest{StreamingRequest: &texttospeechpb.StreamingSynthesizeRequest_Input{
+								Input: &texttospeechpb.StreamingSynthesisInput{
+									InputSource: &texttospeechpb.StreamingSynthesisInput_Text{
+										Text: text,
+									},
+								},
+							}})
+							if err != nil {
+								return err
+							}
 						}
+						return nil
 					})
 					if err != nil {
 						log.Fatal(err)
@@ -134,6 +178,50 @@ func main() {
 			}
 		}
 	}
+
+	go func() {
+		for {
+			globalOutputMutex.Lock()
+			if len(globalOutput) == 0 {
+				output = make([]int16, FramesPerBuffer) // 出力バッファを0で初期化
+				copy(audioStream.output, output)        // audioStream.outputにコピー
+				err := audioStream.stream.Write()       // 出力バッファを再生
+				if err != nil {
+					log.Printf("stream.Write() failed: %v", err) // エラーログをPrintfに変更 (Fatalではない)
+					// エラーが発生しても処理を継続 (必要に応じてエラー処理を追加)
+				}
+
+				globalOutputMutex.Unlock()
+				time.Sleep(time.Millisecond * 10) // 必要に応じてsleepを挟むことでCPU使用率を下げられます
+				continue
+			}
+
+			copyLength := FramesPerBuffer
+			if len(globalOutput) < FramesPerBuffer {
+				copyLength = len(globalOutput)
+			}
+
+			copiedData := make([]int16, FramesPerBuffer) // 固定長バッファを作成
+			copy(copiedData, globalOutput[:copyLength])  // globalOutputからコピー
+
+			// globalOutputの長さがFramesPerBufferより短い場合、残りを0で埋める (既に0で初期化されているので不要)
+			// 必要であれば明示的に0埋めしても良いですが、makeで初期化された時点で0なので通常は不要です
+
+			copy(audioStream.output, copiedData) // audioStream.outputにコピー
+
+			globalOutput = globalOutput[copyLength:] // globalOutputからコピーした要素を削除
+			globalOutputMutex.Unlock()
+
+			fmt.Printf("Copied %d elements to audioStream.output. Remaining globalOutput: %d\n", copyLength, len(globalOutput))
+			// ここで audioStream.output を使用する処理を記述 (例: 再生処理など)
+
+			err := audioStream.stream.Write()
+			if err != nil {
+				log.Printf("stream.Write() failed: %v", err) // エラーログをPrintfに変更 (Fatalではない)
+				// エラーが発生しても処理を継続 (必要に応じてエラー処理を追加)
+			}
+		}
+	}()
 
 	speechToTextFromMic(audioStream, onRes)
 }
@@ -160,6 +248,8 @@ func speechToTextFromMic(audioStream *AudioStream, onRes func(*speechpb.Streamin
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer client.Close()
+
 	stream, err := client.StreamingRecognize(ctx)
 	if err != nil {
 		log.Fatal(err)
@@ -262,8 +352,9 @@ func speechToTextFromMic(audioStream *AudioStream, onRes func(*speechpb.Streamin
 	}
 }
 
-func generateContentFromText(text string, onRes func(*genai.GenerateContentResponse)) error {
-	modelName := "gemini-2.0-flash-exp"
+func generateContentFromText(text string, onRes func(*genai.GenerateContentResponse) error) error {
+	fmt.Println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+	modelName := "gemini-1.5-flash"
 	location := "us-central1"
 	projectID := "chumchat"
 
@@ -287,47 +378,14 @@ func generateContentFromText(text string, onRes func(*genai.GenerateContentRespo
 		if err != nil {
 			return err
 		}
-		onRes(resp)
+
+		err = onRes(resp)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
-}
-
-func generateSpeech(text string) (string, error) {
-	ctx := context.Background()
-
-	client, err := texttospeech.NewClient(ctx, option.WithCredentialsFile("./chumchat.json"))
-	if err != nil {
-		return "", err
-	}
-	defer client.Close()
-
-	req := texttospeechpb.SynthesizeSpeechRequest{
-		Input: &texttospeechpb.SynthesisInput{
-			InputSource: &texttospeechpb.SynthesisInput_Text{Text: text},
-		},
-		Voice: &texttospeechpb.VoiceSelectionParams{
-			LanguageCode: "ja-JP",
-			SsmlGender:   texttospeechpb.SsmlVoiceGender_NEUTRAL,
-		},
-		AudioConfig: &texttospeechpb.AudioConfig{
-			AudioEncoding: texttospeechpb.AudioEncoding_MP3,
-			SpeakingRate:  1.5,
-		},
-	}
-
-	resp, err := client.SynthesizeSpeech(ctx, &req)
-	if err != nil {
-		return "", err
-	}
-
-	filename := "output.mp3"
-	err = os.WriteFile(filename, resp.AudioContent, 0644)
-	if err != nil {
-		return "", err
-	}
-	fmt.Printf("Audio content written to file: %v\n", filename)
-	return filename, nil
 }
 
 func Int16ToBytesBinary(ints []int16, order binary.ByteOrder) ([]byte, error) {
@@ -336,4 +394,13 @@ func Int16ToBytesBinary(ints []int16, order binary.ByteOrder) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+func BytesToInt16Binary(data []byte, order binary.ByteOrder) ([]int16, error) {
+	reader := bytes.NewReader(data)
+	int16Slice := make([]int16, len(data)/2)
+	if err := binary.Read(reader, order, int16Slice); err != nil {
+		return nil, err
+	}
+	return int16Slice, nil
 }
