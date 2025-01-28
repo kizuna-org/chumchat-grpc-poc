@@ -4,7 +4,14 @@ go 1.23.5
 
 require cloud.google.com/go/vertexai v0.13.3
 
-require github.com/kizuna-org/go-webrtcvad v0.0.0-20250128011137-afae24aad3f3 // indirect
+require (
+	github.com/joho/godotenv v1.5.1 // indirect
+	github.com/kizuna-org/go-webrtcvad v0.0.0-20250128011137-afae24aad3f3 // indirect
+	github.com/tidwall/gjson v1.14.4 // indirect
+	github.com/tidwall/match v1.1.1 // indirect
+	github.com/tidwall/pretty v1.2.1 // indirect
+	github.com/tidwall/sjson v1.2.5 // indirect
+)
 
 require (
 	buf.build/gen/go/bufbuild/bufplugin/protocolbuffers/go v1.36.3-20241031151143-70f632351282.1 // indirect
@@ -87,6 +94,7 @@ require (
 	github.com/moby/term v0.5.2 // indirect
 	github.com/morikuni/aec v1.0.0 // indirect
 	github.com/onsi/ginkgo/v2 v2.22.2 // indirect
+	github.com/openai/openai-go v0.1.0-alpha.49
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.0 // indirect
 	github.com/opencontainers/runtime-spec v1.2.0 // indirect

@@ -26,6 +26,7 @@ go.work
 
 # End of https://www.toptal.com/developers/gitignore/api/go
 
+.env
 chumchat.json
 *.mp3
 *.wav
