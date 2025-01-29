@@ -106,11 +106,13 @@ func playAudio(as *AudioStream) {
 			if err != nil {
 				log.Printf("stream.Write() failed: %v", err)
 			}
+
+			time.Sleep(time.Duration(vars.FramesPerBuffer) * time.Second / time.Duration(vars.SampleRate))
 		}
 	}
 }
 
-func NewAudioStream(onInput func([]int16) error) (*AudioStream, error) {
+func NewAudioStream() (*AudioStream, error) {
 	portaudio.Initialize()
 
 	input := make([]int16, vars.FramesPerBuffer)
@@ -126,8 +128,12 @@ func NewAudioStream(onInput func([]int16) error) (*AudioStream, error) {
 		input:             input,
 		output:            output,
 		ctx:               context.Background(),
-		onInput:           onInput,
+		onInput:           nil,
 		globalOutputMutex: sync.Mutex{},
 		globalOutput:      []int16{},
 	}, nil
+}
+
+func (as *AudioStream) SetOnInput(onInput func([]int16) error) {
+	as.onInput = onInput
 }

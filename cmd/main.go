@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/binary"
 	"fmt"
 	"time"
@@ -9,27 +8,27 @@ import (
 	"log"
 
 	"cloud.google.com/go/speech/apiv1/speechpb"
-	texttospeech "cloud.google.com/go/texttospeech/apiv1"
 	"cloud.google.com/go/texttospeech/apiv1/texttospeechpb"
 	"cloud.google.com/go/vertexai/genai"
 	"github.com/kizuna-org/chumchat-grpc-poc/internal/audio"
 	"github.com/kizuna-org/chumchat-grpc-poc/internal/llm"
-	"github.com/kizuna-org/chumchat-grpc-poc/internal/stt"
 	"github.com/kizuna-org/chumchat-grpc-poc/internal/tts"
 	"github.com/kizuna-org/chumchat-grpc-poc/internal/util"
 )
 
-var ctx = context.Background()
-var ttsClient *texttospeech.Client
-var audioStream *audio.AudioStream
-
 func main() {
 	// Initialize
-	// tts, err := tts.NewTextToSpeech(getTtsOnRes())
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-	// defer tts.Close()
+	audioStream, err := audio.NewAudioStream()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer audioStream.Close()
+
+	tts, err := tts.NewTextToSpeech(getTtsOnRes(audioStream))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer tts.Close()
 
 	// llm, err := llm.NewLLMObject(vars.SystemPrompt, getLlmOnRes(tts))
 	// if err != nil {
@@ -37,42 +36,33 @@ func main() {
 	// }
 	// defer llm.Close()
 
-	stt, err := stt.NewSpeechToText(
-		func(resp *speechpb.StreamingRecognizeResponse) error {
-			fmt.Println("onRes:")
-			fmt.Println(resp)
-			return nil
-		},
-	)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer stt.Close()
-
-	audioStream, err := audio.NewAudioStream(stt.OnInput)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer audioStream.Close()
-
-	// Start
-	// err = tts.Start()
+	// stt, err := stt.NewSpeechToText(getSttOnRes(llm))
 	// if err != nil {
 	// 	log.Fatal(err)
 	// }
-	// defer tts.Stop()
+	// defer stt.Close()
+	// audioStream.SetOnInput(stt.OnInput)
 
-	err = stt.Start()
+	// Start
+	err = tts.Start()
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer stt.Stop()
+	defer tts.Stop()
+
+	// err = stt.Start()
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+	// defer stt.Stop()
 
 	err = audioStream.Start()
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer audioStream.Stop()
+
+	tts.Send("Hello, how are you?")
 
 	for {
 		time.Sleep(1 * time.Second)
@@ -120,7 +110,7 @@ func getLlmOnRes(tts *tts.TextToSpeech) func(resp *genai.GenerateContentResponse
 	}
 }
 
-func getTtsOnRes() func(resp *texttospeechpb.StreamingSynthesizeResponse) error {
+func getTtsOnRes(audioStream *audio.AudioStream) func(resp *texttospeechpb.StreamingSynthesizeResponse) error {
 	return func(resp *texttospeechpb.StreamingSynthesizeResponse) error {
 		output, err := util.BytesToInt16Binary(resp.AudioContent, binary.LittleEndian)
 		if err != nil {
