@@ -25,6 +25,7 @@ type SpeechToText struct {
 
 	lastRes      *speechpb.StreamingRecognizeResponse
 	inactiveTime time.Time
+	sended       bool
 
 	onResponse func(*speechpb.StreamingRecognizeResponse) error
 }
@@ -108,8 +109,6 @@ func (st *SpeechToText) Start() error {
 					log.Fatalf("Could not recognize: %v", err)
 				}
 
-				fmt.Println("\n\nInactive: ", time.Since(st.inactiveTime))
-				st.onResponse(resp)
 				st.lastRes = resp
 			}
 		}
@@ -140,10 +139,16 @@ func (st *SpeechToText) OnInput(input []int16) error {
 
 	if frameActive || time.Since(st.inactiveTime) < vars.VadInactiveTimeout*time.Millisecond {
 		frameActive = true
+		st.sended = false
 	}
 
 	if !frameActive && time.Since(st.inactiveTime) > time.Duration(vars.VadFinishTalkingTimeout)*time.Millisecond {
-		fmt.Println("Finish talking!!!!!!!!!!!!")
+		if st.lastRes != nil && !st.sended {
+			fmt.Println("\n\nInactive: ", time.Since(st.inactiveTime))
+			st.onResponse(st.lastRes)
+			st.lastRes = nil
+			st.sended = true
+		}
 	}
 
 	if !frameActive {

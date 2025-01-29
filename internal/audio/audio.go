@@ -48,10 +48,13 @@ func (as *AudioStream) Start() error {
 					log.Printf("stream.Read() failed: %v", err)
 				}
 
-				if as.onInput != nil {
-					err := as.onInput(as.input)
-					if err != nil {
-						log.Printf("onInput failed: %v", err)
+				if vars.IsSkipWhenOutput && len(as.globalOutput) > 0 {
+				} else {
+					if as.onInput != nil {
+						err := as.onInput(as.input)
+						if err != nil {
+							log.Printf("onInput failed: %v", err)
+						}
 					}
 				}
 			}

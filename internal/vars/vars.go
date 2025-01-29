@@ -29,3 +29,7 @@ const SystemPrompt = `
 Please interact in English.
 Please respond in 1-2 sentences.
 `
+
+const IsSkipWhenOutput = true
+
+const SSTSameDistance = 5
