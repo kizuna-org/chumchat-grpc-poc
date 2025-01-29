@@ -106,8 +106,6 @@ func playAudio(as *AudioStream) {
 			if err != nil {
 				log.Printf("stream.Write() failed: %v", err)
 			}
-
-			time.Sleep(time.Duration(vars.FramesPerBuffer) * time.Second / time.Duration(vars.SampleRate))
 		}
 	}
 }

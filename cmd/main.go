@@ -14,28 +14,27 @@ import (
 	"github.com/kizuna-org/chumchat-grpc-poc/internal/llm"
 	"github.com/kizuna-org/chumchat-grpc-poc/internal/tts"
 	"github.com/kizuna-org/chumchat-grpc-poc/internal/util"
-	"github.com/kizuna-org/chumchat-grpc-poc/internal/vars"
 )
 
 func main() {
 	// Initialize
-	// audioStream, err := audio.NewAudioStream()
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-	// defer audioStream.Close()
-
-	// tts, err := tts.NewTextToSpeech(getTtsOnRes(audioStream))
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-	// defer tts.Close()
-
-	llm, err := llm.NewLLMObject(vars.SystemPrompt)
+	audioStream, err := audio.NewAudioStream()
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer llm.Close()
+	defer audioStream.Close()
+
+	tts, err := tts.NewTextToSpeech()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer tts.Close()
+
+	// llm, err := llm.NewLLMObject(vars.SystemPrompt)
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+	// defer llm.Close()
 	// llm.SetOnResponse(getLlmOnRes(tts))
 
 	// stt, err := stt.NewSpeechToText(getSttOnRes(llm))
@@ -58,20 +57,31 @@ func main() {
 	// }
 	// defer stt.Stop()
 
-	// err = audioStream.Start()
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-	// defer audioStream.Stop()
+	err = audioStream.Start()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer audioStream.Stop()
 
-	llm.SetOnResponse(func(resp *genai.GenerateContentResponse) error {
-		fmt.Println("onRes:")
-		for _, part := range resp.Candidates[0].Content.Parts {
-			fmt.Printf("Text: %s\n", part)
-		}
-		return nil
-	})
-	llm.GenerateContentStream("Hello, how are you?")
+	// llm.SetOnResponse(func(resp *genai.GenerateContentResponse) error {
+	// 	fmt.Println("onRes:")
+	// 	for _, part := range resp.Candidates[0].Content.Parts {
+	// 		fmt.Printf("Text: %s\n", part)
+	// 	}
+	// 	return nil
+	// })
+
+	data, err := tts.Speech("Hello, I am ChumChat.")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	out, err := util.BytesToInt16Binary(data, binary.LittleEndian)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	audioStream.Output(out)
 
 	for {
 		time.Sleep(1 * time.Second)
@@ -104,7 +114,7 @@ func getSttOnRes(llm *llm.LLMObject) func(resp *speechpb.StreamingRecognizeRespo
 	}
 }
 
-func getLlmOnRes(tts *tts.TextToSpeech) func(resp *genai.GenerateContentResponse) error {
+func getLlmOnRes(tts *tts.TextToSpeechStream) func(resp *genai.GenerateContentResponse) error {
 	return func(resp *genai.GenerateContentResponse) error {
 		for _, part := range resp.Candidates[0].Content.Parts {
 			fmt.Printf("Text: %s\n", part)
