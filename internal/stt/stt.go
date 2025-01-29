@@ -10,27 +10,34 @@ import (
 
 	speech "cloud.google.com/go/speech/apiv1"
 	"cloud.google.com/go/speech/apiv1/speechpb"
-	"github.com/kizuna-org/chumchat-grpc-poc/internal/audio"
 	"github.com/kizuna-org/chumchat-grpc-poc/internal/util"
 	"github.com/kizuna-org/chumchat-grpc-poc/internal/vars"
 	"github.com/kizuna-org/go-webrtcvad"
 	"google.golang.org/api/option"
 )
 
-func speechToTextFromMic(audioStream *audio.AudioStream, onRes func(*speechpb.StreamingRecognizeResponse)) {
-	var lastRes *speechpb.StreamingRecognizeResponse = nil
-	var frameActive = false
-	var lastActiveTime = time.Now()
+type SpeechToText struct {
+	vadInst *webrtcvad.VadInst
+	stream  *speechpb.Speech_StreamingRecognizeClient
+	client  *speech.Client
 
+	ctx context.Context
+
+	lastRes        *speechpb.StreamingRecognizeResponse
+	lastActiveTime time.Time
+
+	onResponse func(*speechpb.StreamingRecognizeResponse) error
+}
+
+func NewSpeechToText(onResponse func(*speechpb.StreamingRecognizeResponse) error) (*SpeechToText, error) {
 	vadInst := webrtcvad.Create()
-	defer webrtcvad.Free(vadInst)
 	err := webrtcvad.Init(vadInst)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 	err = webrtcvad.SetMode(vadInst, vars.VadMode)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 
 	ctx := context.Background()
@@ -39,7 +46,6 @@ func speechToTextFromMic(audioStream *audio.AudioStream, onRes func(*speechpb.St
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer client.Close()
 
 	stream, err := client.StreamingRecognize(ctx)
 	if err != nil {
@@ -60,77 +66,102 @@ func speechToTextFromMic(audioStream *audio.AudioStream, onRes func(*speechpb.St
 		log.Fatal(err)
 	}
 
-	// TODO: これをaudio.NewAudioStream()でやる
-	// というか、sttの分岐だけを切り出して別のstructにしたほうが良さそう
-	// stt.New(中でgoogle sttの初期化)して、stt.onInputをaudioStream.onInputに渡す感じ
-	go func(input []int16) error {
-		// buf := make([]byte, SampleRate/1000*FrameDuration*BitDepth/8) //1024)
+	return &SpeechToText{
+		vadInst:        &vadInst,
+		client:         client,
+		stream:         &stream,
+		ctx:            context.Background(),
+		lastRes:        nil,
+		lastActiveTime: time.Now(),
+		onResponse:     onResponse,
+	}, nil
+}
 
-		if err != nil && err != io.EOF {
-			return err
-		}
+func (st *SpeechToText) Close() error {
+	if err := (*st.stream).CloseSend(); err != nil {
+		return err
+	}
+	st.client.Close()
+	webrtcvad.Free(*st.vadInst)
 
-		frame, err := util.Int16ToBytesBinary(input, binary.LittleEndian)
-		if err != nil {
-			return err
-		}
+	return nil
+}
 
-		frameActive, err = webrtcvad.Process(vadInst, vars.SampleRate, frame, 16000/1000*20)
-		if err != nil {
-			log.Fatal(err)
-		}
+func (st *SpeechToText) Start() error {
+	go func() {
+		for {
+			select {
+			case <-st.ctx.Done():
+				return
+			default:
+				resp, err := (*st.stream).Recv()
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					log.Fatalf("Cannot stream results: %v", err)
+				}
+				if err := resp.Error; err != nil {
+					if err.Code == 3 || err.Code == 11 {
+						log.Print("WARNING: Speech recognition request exceeded limit of 60 seconds.")
+					}
+					log.Fatalf("Could not recognize: %v", err)
+				}
 
-		if frameActive {
-			lastActiveTime = time.Now()
-		}
-
-		if !frameActive && time.Since(lastActiveTime) > vars.VadFinishWaitSTT*time.Millisecond {
-			if lastRes != nil && onRes != nil {
-				fmt.Println("\n\n\n\n\n\n\n\n\n\n\n\n\n\nLatency: ", time.Since(lastActiveTime))
-				onRes(lastRes)
-				lastRes = nil
+				st.lastRes = resp
 			}
-
-			return nil
-		} else {
-			// fmt.Fprintln(os.Stderr, time.Now(), "active")
-		}
-
-		if err := stream.Send(&speechpb.StreamingRecognizeRequest{
-			StreamingRequest: &speechpb.StreamingRecognizeRequest_AudioContent{
-				AudioContent: frame,
-			},
-		}); err != nil {
-			log.Printf("Could not send audio: %v", err)
-		}
-
-		if err == io.EOF {
-			if err := stream.CloseSend(); err != nil {
-				log.Fatalf("Could not close stream: %v", err)
-			}
-			return nil
-		}
-		if err != nil {
-			log.Printf("Could not read from stdin: %v", err)
-			return nil
 		}
 	}()
 
-	for {
-		resp, err := stream.Recv()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			log.Fatalf("Cannot stream results: %v", err)
-		}
-		if err := resp.Error; err != nil {
-			if err.Code == 3 || err.Code == 11 {
-				log.Print("WARNING: Speech recognition request exceeded limit of 60 seconds.")
-			}
-			log.Fatalf("Could not recognize: %v", err)
+	return nil
+}
+
+func (st *SpeechToText) Stop() {
+	st.ctx.Done()
+}
+
+func (st *SpeechToText) OnInput(input []int16) error {
+	// buf := make([]byte, SampleRate/1000*FrameDuration*BitDepth/8) //1024)
+	frame, err := util.Int16ToBytesBinary(input, binary.LittleEndian)
+	if err != nil {
+		return err
+	}
+
+	frameActive, err := webrtcvad.Process(*st.vadInst, vars.SampleRate, frame, 16000/1000*20)
+	if err != nil {
+		return err
+	}
+
+	if frameActive {
+		st.lastActiveTime = time.Now()
+	}
+
+	if !frameActive && time.Since(st.lastActiveTime) > vars.VadFinishWaitSTT*time.Millisecond {
+		if st.lastRes != nil && st.onResponse != nil {
+			fmt.Println("\n\n\n\n\n\n\n\n\n\n\n\n\n\nLatency: ", time.Since(st.lastActiveTime))
+			st.onResponse(st.lastRes)
+			st.lastRes = nil
 		}
 
-		lastRes = resp
+		return nil
+	} else {
+		// fmt.Fprintln(os.Stderr, time.Now(), "active")
 	}
+
+	if err := (*st.stream).Send(&speechpb.StreamingRecognizeRequest{
+		StreamingRequest: &speechpb.StreamingRecognizeRequest_AudioContent{
+			AudioContent: frame,
+		},
+	}); err != nil {
+		log.Printf("Could not send audio: %v", err)
+	}
+
+	if err == io.EOF {
+		return err
+	}
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

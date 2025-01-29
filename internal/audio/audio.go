@@ -13,20 +13,20 @@ import (
 
 type AudioStream struct {
 	stream *portaudio.Stream
-	input  []int16
-	output []int16
+	input  *[]int16
+	output *[]int16
 
 	ctx               context.Context
-	GlobalOutputMutex sync.Mutex
-	GlobalOutput      []int16
+	globalOutputMutex sync.Mutex
+	globalOutput      []int16
 
 	onInput func([]int16) error
 }
 
 func (as *AudioStream) Output(output []int16) {
-	as.GlobalOutputMutex.Lock()
-	defer as.GlobalOutputMutex.Unlock()
-	as.GlobalOutput = output
+	as.globalOutputMutex.Lock()
+	defer as.globalOutputMutex.Unlock()
+	as.globalOutput = output
 }
 
 func (as *AudioStream) Close() error {
@@ -36,7 +36,6 @@ func (as *AudioStream) Close() error {
 }
 
 func (as *AudioStream) Start() error {
-	portaudio.Initialize()
 	go playAudio(as)
 	go func() {
 		for {
@@ -44,7 +43,7 @@ func (as *AudioStream) Start() error {
 			case <-as.ctx.Done():
 				return
 			default:
-				err := as.onInput(as.input)
+				err := as.onInput(*as.input)
 				if err != nil {
 					log.Printf("onInput failed: %v", err)
 				}
@@ -67,34 +66,34 @@ func playAudio(as *AudioStream) {
 		case <-as.ctx.Done():
 			return
 		default:
-			as.GlobalOutputMutex.Lock()
-			if len(as.GlobalOutput) == 0 {
+			as.globalOutputMutex.Lock()
+			if len(as.globalOutput) == 0 {
 				output := make([]int16, vars.FramesPerBuffer)
-				copy(as.output, output)
+				copy(*as.output, output)
 				err := as.stream.Write()
 				if err != nil {
 					log.Printf("stream.Write() failed: %v", err)
 				}
 
-				as.GlobalOutputMutex.Unlock()
+				as.globalOutputMutex.Unlock()
 				time.Sleep(time.Millisecond * 10)
 				continue
 			}
 
 			copyLength := vars.FramesPerBuffer
-			if len(as.GlobalOutput) < vars.FramesPerBuffer {
-				copyLength = len(as.GlobalOutput)
+			if len(as.globalOutput) < vars.FramesPerBuffer {
+				copyLength = len(as.globalOutput)
 			}
 
 			copiedData := make([]int16, vars.FramesPerBuffer)
-			copy(copiedData, as.GlobalOutput[:copyLength])
+			copy(copiedData, as.globalOutput[:copyLength])
 
-			copy(as.output, copiedData)
+			copy(*as.output, copiedData)
 
-			as.GlobalOutput = as.GlobalOutput[copyLength:]
-			as.GlobalOutputMutex.Unlock()
+			as.globalOutput = as.globalOutput[copyLength:]
+			as.globalOutputMutex.Unlock()
 
-			fmt.Printf("Copied %d elements to as.output. Remaining globalOutput: %d\n", copyLength, len(as.GlobalOutput))
+			fmt.Printf("Copied %d elements to as.output. Remaining globalOutput: %d\n", copyLength, len(as.globalOutput))
 
 			err := as.stream.Write()
 			if err != nil {
@@ -105,6 +104,8 @@ func playAudio(as *AudioStream) {
 }
 
 func NewAudioStream(onInput func([]int16) error) (*AudioStream, error) {
+	portaudio.Initialize()
+
 	input := make([]int16, vars.FramesPerBuffer)
 	output := make([]int16, vars.FramesPerBuffer)
 
@@ -114,9 +115,12 @@ func NewAudioStream(onInput func([]int16) error) (*AudioStream, error) {
 	}
 
 	return &AudioStream{
-		stream: stream,
-		input:  input,
-		output: output,
-		ctx:    context.Background(),
+		stream:            stream,
+		input:             &input,
+		output:            &output,
+		ctx:               context.Background(),
+		onInput:           onInput,
+		globalOutputMutex: sync.Mutex{},
+		globalOutput:      []int16{},
 	}, nil
 }

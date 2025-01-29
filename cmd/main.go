@@ -3,24 +3,40 @@ package main
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"log"
 
 	"cloud.google.com/go/speech/apiv1/speechpb"
 	texttospeech "cloud.google.com/go/texttospeech/apiv1"
-	"google.golang.org/api/option"
+	"github.com/kizuna-org/chumchat-grpc-poc/internal/audio"
+	"github.com/kizuna-org/chumchat-grpc-poc/internal/stt"
 )
 
 var ctx = context.Background()
 var ttsClient *texttospeech.Client
-var audioStream *AudioStream
+var audioStream *audio.AudioStream
 
 func main() {
-	audioStream, err := NewAudioStream()
+	// Initialize
+	stt, err := stt.NewSpeechToText(sttOnRes)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer stt.Close()
+
+	audioStream, err := audio.NewAudioStream(stt.OnInput)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer audioStream.Close()
+
+	// Start
+	err = stt.Start()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer stt.Stop()
 
 	err = audioStream.Start()
 	if err != nil {
@@ -28,16 +44,17 @@ func main() {
 	}
 	defer audioStream.Stop()
 
-	ttsClient, err = texttospeech.NewClient(ctx, option.WithCredentialsFile("./chumchat.json"))
-	if err != nil {
-		log.Fatal(err)
+	// ttsClient, err = texttospeech.NewClient(ctx, option.WithCredentialsFile("./chumchat.json"))
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+	// defer ttsClient.Close()
+	for {
+		time.Sleep(1 * time.Second)
 	}
-	defer ttsClient.Close()
-
-	speechToTextFromMic(audioStream, sttOnRes)
 }
 
-func sttOnRes(resp *speechpb.StreamingRecognizeResponse) {
+func sttOnRes(resp *speechpb.StreamingRecognizeResponse) error {
 	fmt.Println("onRes:")
 	for i, result := range resp.Results {
 		if i != 0 {
@@ -123,4 +140,6 @@ func sttOnRes(resp *speechpb.StreamingRecognizeResponse) {
 		// 	}()
 		// }
 	}
+
+	return nil
 }
