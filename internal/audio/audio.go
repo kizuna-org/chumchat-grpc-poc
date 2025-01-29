@@ -21,6 +21,8 @@ type AudioStream struct {
 	globalOutput      []int16
 
 	onInput func([]int16) error
+
+	lastOutput time.Time
 }
 
 func (as *AudioStream) Output(output []int16) {
@@ -43,14 +45,17 @@ func (as *AudioStream) Start() error {
 			case <-as.ctx.Done():
 				return
 			default:
-				// FIXME: 自分で自分の音を拾うので、timeoutを設ける
+				err := as.stream.Read()
+				if err != nil {
+					log.Printf("stream.Read() failed: %v", err)
+				}
+
 				if vars.IsSkipWhenOutput && len(as.globalOutput) > 0 {
 					continue
 				}
 
-				err := as.stream.Read()
-				if err != nil {
-					log.Printf("stream.Read() failed: %v", err)
+				if vars.IsSkipWhenOutput && time.Since(as.lastOutput) < time.Millisecond*vars.OutputSkipTime {
+					continue
 				}
 
 				if as.onInput != nil {
@@ -112,6 +117,8 @@ func playAudio(as *AudioStream) {
 			if err != nil {
 				log.Printf("stream.Write() failed: %v", err)
 			}
+
+			as.lastOutput = time.Now()
 		}
 	}
 }

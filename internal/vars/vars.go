@@ -28,6 +28,9 @@ Please interact in English.
 Please respond in 1-2 sentences.
 `
 
-const IsSkipWhenOutput = true
+const (
+	IsSkipWhenOutput = true
+	OutputSkipTime   = 50 // ms
+)
 
 const SSTSameDistance = 5
