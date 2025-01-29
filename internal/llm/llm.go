@@ -8,19 +8,39 @@ import (
 	"google.golang.org/api/iterator"
 )
 
-func genLLMStreamContent(text string, onRes func(*genai.GenerateContentResponse) error) error {
+type LLMObject struct {
+	client *genai.Client
+	gemini *genai.GenerativeModel
+
+	ctx context.Context
+}
+
+func NewLLMObject(prompt string) (*LLMObject, error) {
 	ctx := context.Background()
 	client, err := genai.NewClient(ctx, vars.ProjectID, vars.Location)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	gemini := client.GenerativeModel(vars.GenAIModelName)
 	gemini.SystemInstruction = &genai.Content{
-		Parts: []genai.Part{genai.Text(vars.SystemPrompt)},
+		Parts: []genai.Part{genai.Text(prompt)},
 	}
+
+	return &LLMObject{
+		client: client,
+		gemini: gemini,
+		ctx:    ctx,
+	}, nil
+}
+
+func (llm *LLMObject) Close() error {
+	return llm.client.Close()
+}
+
+func (llm *LLMObject) GenerateContentStream(text string, onResponse func(*genai.GenerateContentResponse) error) error {
 	prompt := genai.Text(text)
 
-	iter := gemini.GenerateContentStream(ctx, prompt)
+	iter := llm.gemini.GenerateContentStream(llm.ctx, prompt)
 	for {
 		resp, err := iter.Next()
 		if err == iterator.Done {
@@ -30,7 +50,7 @@ func genLLMStreamContent(text string, onRes func(*genai.GenerateContentResponse)
 			return err
 		}
 
-		err = onRes(resp)
+		err = onResponse(resp)
 		if err != nil {
 			return err
 		}

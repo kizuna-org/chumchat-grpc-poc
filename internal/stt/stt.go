@@ -153,13 +153,6 @@ func (st *SpeechToText) OnInput(input []int16) error {
 			AudioContent: frame,
 		},
 	}); err != nil {
-		log.Printf("Could not send audio: %v", err)
-	}
-
-	if err == io.EOF {
-		return err
-	}
-	if err != nil {
 		return err
 	}
 
