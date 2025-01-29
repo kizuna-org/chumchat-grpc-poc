@@ -17,7 +17,6 @@ import (
 	"github.com/kizuna-org/chumchat-grpc-poc/internal/stt"
 	"github.com/kizuna-org/chumchat-grpc-poc/internal/tts"
 	"github.com/kizuna-org/chumchat-grpc-poc/internal/util"
-	"github.com/kizuna-org/chumchat-grpc-poc/internal/vars"
 )
 
 var ctx = context.Background()
@@ -26,19 +25,25 @@ var audioStream *audio.AudioStream
 
 func main() {
 	// Initialize
-	tts, err := tts.NewTextToSpeech(getTtsOnRes())
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer tts.Close()
+	// tts, err := tts.NewTextToSpeech(getTtsOnRes())
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+	// defer tts.Close()
 
-	llm, err := llm.NewLLMObject(vars.SystemPrompt, getLlmOnRes(tts))
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer llm.Close()
+	// llm, err := llm.NewLLMObject(vars.SystemPrompt, getLlmOnRes(tts))
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+	// defer llm.Close()
 
-	stt, err := stt.NewSpeechToText(getSttOnRes(llm))
+	stt, err := stt.NewSpeechToText(
+		func(resp *speechpb.StreamingRecognizeResponse) error {
+			fmt.Println("onRes:")
+			fmt.Println(resp)
+			return nil
+		},
+	)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -51,11 +56,11 @@ func main() {
 	defer audioStream.Close()
 
 	// Start
-	err = tts.Start()
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer tts.Stop()
+	// err = tts.Start()
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+	// defer tts.Stop()
 
 	err = stt.Start()
 	if err != nil {

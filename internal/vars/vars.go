@@ -12,7 +12,11 @@ const (
 )
 
 const (
-	VadFinishWaitSTT = 50 // ms
+	VadInactiveTimeout = 100 // 経ったらvadのactiveをfalseに ms
+)
+
+var (
+	VadFinishTalkingTimeout = VadInactiveTimeout + 100 // 経ったら喋り終わった ms
 )
 
 const (

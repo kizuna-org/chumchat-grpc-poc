@@ -23,8 +23,8 @@ type SpeechToText struct {
 
 	ctx context.Context
 
-	lastRes        *speechpb.StreamingRecognizeResponse
-	lastActiveTime time.Time
+	lastRes      *speechpb.StreamingRecognizeResponse
+	inactiveTime time.Time
 
 	onResponse func(*speechpb.StreamingRecognizeResponse) error
 }
@@ -58,7 +58,7 @@ func NewSpeechToText(onResponse func(*speechpb.StreamingRecognizeResponse) error
 				Config: &speechpb.RecognitionConfig{
 					Encoding:        speechpb.RecognitionConfig_LINEAR16,
 					SampleRateHertz: 16000,
-					LanguageCode:    "ja-JP",
+					LanguageCode:    "en-US", //"ja-JP",
 				},
 			},
 		},
@@ -67,13 +67,13 @@ func NewSpeechToText(onResponse func(*speechpb.StreamingRecognizeResponse) error
 	}
 
 	return &SpeechToText{
-		vadInst:        &vadInst,
-		client:         client,
-		stream:         &stream,
-		ctx:            context.Background(),
-		lastRes:        nil,
-		lastActiveTime: time.Now(),
-		onResponse:     onResponse,
+		vadInst:      &vadInst,
+		client:       client,
+		stream:       &stream,
+		ctx:          context.Background(),
+		lastRes:      nil,
+		inactiveTime: time.Now(),
+		onResponse:   onResponse,
 	}, nil
 }
 
@@ -108,6 +108,8 @@ func (st *SpeechToText) Start() error {
 					log.Fatalf("Could not recognize: %v", err)
 				}
 
+				fmt.Println("\n\nInactive: ", time.Since(st.inactiveTime))
+				st.onResponse(resp)
 				st.lastRes = resp
 			}
 		}
@@ -133,19 +135,19 @@ func (st *SpeechToText) OnInput(input []int16) error {
 	}
 
 	if frameActive {
-		st.lastActiveTime = time.Now()
+		st.inactiveTime = time.Now()
 	}
 
-	if !frameActive && time.Since(st.lastActiveTime) > vars.VadFinishWaitSTT*time.Millisecond {
-		if st.lastRes != nil && st.onResponse != nil {
-			fmt.Println("\n\n\n\n\n\n\n\n\n\n\n\n\n\nLatency: ", time.Since(st.lastActiveTime))
-			st.onResponse(st.lastRes)
-			st.lastRes = nil
-		}
+	if frameActive || time.Since(st.inactiveTime) < vars.VadInactiveTimeout*time.Millisecond {
+		frameActive = true
+	}
 
+	if !frameActive && time.Since(st.inactiveTime) > time.Duration(vars.VadFinishTalkingTimeout)*time.Millisecond {
+		fmt.Println("Finish talking!!!!!!!!!!!!")
+	}
+
+	if !frameActive {
 		return nil
-	} else {
-		// fmt.Fprintln(os.Stderr, time.Now(), "active")
 	}
 
 	if err := (*st.stream).Send(&speechpb.StreamingRecognizeRequest{

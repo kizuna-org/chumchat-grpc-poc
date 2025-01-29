@@ -13,8 +13,8 @@ import (
 
 type AudioStream struct {
 	stream *portaudio.Stream
-	input  *[]int16
-	output *[]int16
+	input  []int16
+	output []int16
 
 	ctx               context.Context
 	globalOutputMutex sync.Mutex
@@ -43,8 +43,13 @@ func (as *AudioStream) Start() error {
 			case <-as.ctx.Done():
 				return
 			default:
+				err := as.stream.Read()
+				if err != nil {
+					log.Printf("stream.Read() failed: %v", err)
+				}
+
 				if as.onInput != nil {
-					err := as.onInput(*as.input)
+					err := as.onInput(as.input)
 					if err != nil {
 						log.Printf("onInput failed: %v", err)
 					}
@@ -71,7 +76,7 @@ func playAudio(as *AudioStream) {
 			as.globalOutputMutex.Lock()
 			if len(as.globalOutput) == 0 {
 				output := make([]int16, vars.FramesPerBuffer)
-				copy(*as.output, output)
+				copy(as.output, output)
 				err := as.stream.Write()
 				if err != nil {
 					log.Printf("stream.Write() failed: %v", err)
@@ -90,7 +95,7 @@ func playAudio(as *AudioStream) {
 			copiedData := make([]int16, vars.FramesPerBuffer)
 			copy(copiedData, as.globalOutput[:copyLength])
 
-			copy(*as.output, copiedData)
+			copy(as.output, copiedData)
 
 			as.globalOutput = as.globalOutput[copyLength:]
 			as.globalOutputMutex.Unlock()
@@ -111,15 +116,15 @@ func NewAudioStream(onInput func([]int16) error) (*AudioStream, error) {
 	input := make([]int16, vars.FramesPerBuffer)
 	output := make([]int16, vars.FramesPerBuffer)
 
-	stream, err := portaudio.OpenDefaultStream(1, 1, vars.SampleRate, vars.FramesPerBuffer, input, output)
+	stream, err := portaudio.OpenDefaultStream(1, 1, vars.SampleRate, vars.FramesPerBuffer, &input, &output)
 	if err != nil {
 		return nil, err
 	}
 
 	return &AudioStream{
 		stream:            stream,
-		input:             &input,
-		output:            &output,
+		input:             input,
+		output:            output,
 		ctx:               context.Background(),
 		onInput:           onInput,
 		globalOutputMutex: sync.Mutex{},
