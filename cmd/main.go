@@ -51,6 +51,12 @@ func main() {
 	defer audioStream.Close()
 
 	// Start
+	err = tts.Start()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer tts.Stop()
+
 	err = stt.Start()
 	if err != nil {
 		log.Fatal(err)
