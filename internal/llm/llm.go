@@ -17,7 +17,7 @@ type LLMObject struct {
 	onResponse func(*genai.GenerateContentResponse) error
 }
 
-func NewLLMObject(prompt string, onResponse func(*genai.GenerateContentResponse) error) (*LLMObject, error) {
+func NewLLMObject(prompt string) (*LLMObject, error) {
 	ctx := context.Background()
 	client, err := genai.NewClient(ctx, vars.ProjectID, vars.Location)
 	if err != nil {
@@ -32,7 +32,7 @@ func NewLLMObject(prompt string, onResponse func(*genai.GenerateContentResponse)
 		client:     client,
 		gemini:     gemini,
 		ctx:        ctx,
-		onResponse: onResponse,
+		onResponse: nil,
 	}, nil
 }
 
@@ -62,4 +62,8 @@ func (llm *LLMObject) GenerateContentStream(text string) error {
 	}
 
 	return nil
+}
+
+func (llm *LLMObject) SetOnResponse(onResponse func(*genai.GenerateContentResponse) error) {
+	llm.onResponse = onResponse
 }
