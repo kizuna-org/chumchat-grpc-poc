@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"io"
 	"time"
 
 	"log"
@@ -16,6 +15,7 @@ import (
 	"github.com/kizuna-org/chumchat-grpc-poc/internal/audio"
 	"github.com/kizuna-org/chumchat-grpc-poc/internal/llm"
 	"github.com/kizuna-org/chumchat-grpc-poc/internal/stt"
+	"github.com/kizuna-org/chumchat-grpc-poc/internal/tts"
 	"github.com/kizuna-org/chumchat-grpc-poc/internal/util"
 	"github.com/kizuna-org/chumchat-grpc-poc/internal/vars"
 )
@@ -26,7 +26,13 @@ var audioStream *audio.AudioStream
 
 func main() {
 	// Initialize
-	llm, err := llm.NewLLMObject(vars.SystemPrompt)
+	tts, err := tts.NewTextToSpeech(getTtsOnRes())
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer tts.Close()
+
+	llm, err := llm.NewLLMObject(vars.SystemPrompt, getLlmOnRes(tts))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -57,11 +63,6 @@ func main() {
 	}
 	defer audioStream.Stop()
 
-	// ttsClient, err = texttospeech.NewClient(ctx, option.WithCredentialsFile("./chumchat.json"))
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-	// defer ttsClient.Close()
 	for {
 		time.Sleep(1 * time.Second)
 	}
@@ -83,7 +84,7 @@ func getSttOnRes(llm *llm.LLMObject) func(resp *speechpb.StreamingRecognizeRespo
 			fmt.Printf("Result: %+v\n", result)
 
 			if len(result.Alternatives) > 0 {
-				err := llm.GenerateContentStream(result.Alternatives[0].Transcript, getLlmOnRes())
+				err := llm.GenerateContentStream(result.Alternatives[0].Transcript)
 				if err != nil {
 					return err
 				}
@@ -93,67 +94,30 @@ func getSttOnRes(llm *llm.LLMObject) func(resp *speechpb.StreamingRecognizeRespo
 	}
 }
 
-func getLlmOnRes() func(resp *genai.GenerateContentResponse) error {
+func getLlmOnRes(tts *tts.TextToSpeech) func(resp *genai.GenerateContentResponse) error {
 	return func(resp *genai.GenerateContentResponse) error {
-		ttsStream, err := ttsClient.StreamingSynthesize(ctx)
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer ttsStream.CloseSend()
-
-		ttsStream.Send(&texttospeechpb.StreamingSynthesizeRequest{
-			StreamingRequest: &texttospeechpb.StreamingSynthesizeRequest_StreamingConfig{
-				StreamingConfig: &texttospeechpb.StreamingSynthesizeConfig{
-					Voice: &texttospeechpb.VoiceSelectionParams{
-						LanguageCode: "en-US",
-						SsmlGender:   texttospeechpb.SsmlVoiceGender_NEUTRAL,
-						Name:         "en-US-Journey-D",
-					},
-					StreamingAudioConfig: &texttospeechpb.StreamingAudioConfig{
-						AudioEncoding:   texttospeechpb.AudioEncoding_PCM,
-						SampleRateHertz: 16000,
-					},
-				},
-			},
-		})
-
-		go func() {
-			for {
-				resp, err := ttsStream.Recv()
-				if err == io.EOF {
-					continue
-				}
-				if err != nil {
-					return
-				}
-				if ttsStream.Context().Err() != nil {
-					return
-				}
-
-				output, err := util.BytesToInt16Binary(resp.AudioContent, binary.LittleEndian)
-				if err != nil {
-					log.Fatal(err)
-				}
-
-				audioStream.Output(output)
-			}
-		}()
-
 		for _, part := range resp.Candidates[0].Content.Parts {
 			fmt.Printf("Text: %s\n", part)
 			text := fmt.Sprint(part)
 
-			err = ttsStream.Send(&texttospeechpb.StreamingSynthesizeRequest{StreamingRequest: &texttospeechpb.StreamingSynthesizeRequest_Input{
-				Input: &texttospeechpb.StreamingSynthesisInput{
-					InputSource: &texttospeechpb.StreamingSynthesisInput_Text{
-						Text: text,
-					},
-				},
-			}})
+			err := tts.Send(text)
 			if err != nil {
 				return err
 			}
 		}
+		return nil
+	}
+}
+
+func getTtsOnRes() func(resp *texttospeechpb.StreamingSynthesizeResponse) error {
+	return func(resp *texttospeechpb.StreamingSynthesizeResponse) error {
+		output, err := util.BytesToInt16Binary(resp.AudioContent, binary.LittleEndian)
+		if err != nil {
+			return err
+		}
+
+		audioStream.Output(output)
+
 		return nil
 	}
 }
