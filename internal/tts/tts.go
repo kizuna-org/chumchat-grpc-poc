@@ -72,9 +72,11 @@ func (tts *TextToSpeech) Start() error {
 				}
 
 				// FIXME: Sendされたのから到着順が保証されない&複数のSendを同時に受信して音声が混ざる可能性がある
-				err = tts.onResponse(resp)
-				if err != nil {
-					log.Printf("onResponse failed: %v", err)
+				if tts.onResponse != nil {
+					err = tts.onResponse(resp)
+					if err != nil {
+						log.Printf("onResponse failed: %v", err)
+					}
 				}
 			}
 		}

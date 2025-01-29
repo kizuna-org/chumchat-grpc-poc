@@ -43,9 +43,11 @@ func (as *AudioStream) Start() error {
 			case <-as.ctx.Done():
 				return
 			default:
-				err := as.onInput(*as.input)
-				if err != nil {
-					log.Printf("onInput failed: %v", err)
+				if as.onInput != nil {
+					err := as.onInput(*as.input)
+					if err != nil {
+						log.Printf("onInput failed: %v", err)
+					}
 				}
 			}
 		}

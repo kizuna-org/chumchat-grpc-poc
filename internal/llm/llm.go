@@ -53,9 +53,11 @@ func (llm *LLMObject) GenerateContentStream(text string) error {
 			return err
 		}
 
-		err = llm.onResponse(resp)
-		if err != nil {
-			return err
+		if llm.onResponse != nil {
+			err = llm.onResponse(resp)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
