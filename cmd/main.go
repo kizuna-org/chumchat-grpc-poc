@@ -80,19 +80,16 @@ func getSttOnRes(llm *llm.LLMObject) func(*speechpb.StreamingRecognizeResponse) 
 
 			fmt.Printf("Result: %+v\n", result)
 
-			// if len(result.Alternatives) > 0 {
-			// 	text := result.Alternatives[0].Transcript
-			// 	dist := levenshtein.Distance(lastText, text)
+			if len(result.Alternatives) > 0 {
+				text := result.Alternatives[0].Transcript
 
-			// 	if dist > vars.SSTSameDistance {
-			// 		// err := llm.GenerateContentStream(text)
-			// 		// if err != nil {
-			// 		// 	return err
-			// 		// }
-			// 	}
-
-			// 	lastText = text
-			// }
+				if result.IsFinal {
+					err := llm.GenerateContentStream(text)
+					if err != nil {
+						return err
+					}
+				}
+			}
 		}
 		return nil
 	}

@@ -25,7 +25,7 @@ type SpeechToText struct {
 
 	lastRes      *speechpb.StreamingRecognizeResponse
 	inactiveTime time.Time
-	sended       bool
+	lastInactive time.Time
 
 	onResponse func(*speechpb.StreamingRecognizeResponse) error
 }
@@ -109,6 +109,9 @@ func (st *SpeechToText) Start() error {
 					log.Fatalf("Could not recognize: %v", err)
 				}
 
+				// fmt.Println("\n\nInactive: ", time.Since(st.inactiveTime))
+				// st.onResponse(resp)
+
 				st.lastRes = resp
 			}
 		}
@@ -135,24 +138,30 @@ func (st *SpeechToText) OnInput(input []int16) error {
 
 	if frameActive {
 		st.inactiveTime = time.Now()
+	} else {
+		st.lastInactive = time.Now()
+	}
+
+	if frameActive && time.Since(st.lastInactive) < time.Duration(vars.VadActiveTime)*time.Millisecond {
+		frameActive = false
 	}
 
 	if frameActive || time.Since(st.inactiveTime) < vars.VadInactiveTimeout*time.Millisecond {
 		frameActive = true
-		st.sended = false
 	}
 
 	if !frameActive && time.Since(st.inactiveTime) > time.Duration(vars.VadFinishTalkingTimeout)*time.Millisecond {
-		if st.lastRes != nil && !st.sended {
+		if st.lastRes != nil {
+			fmt.Println("end")
 			fmt.Println("\n\nInactive: ", time.Since(st.inactiveTime))
 			st.onResponse(st.lastRes)
 			st.lastRes = nil
-			st.sended = true
 		}
 	}
 
 	if !frameActive {
-		return nil
+		// FIXME: めっちゃ課金される
+		// return nil
 	}
 
 	if err := (*st.stream).Send(&speechpb.StreamingRecognizeRequest{
