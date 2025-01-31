@@ -12,7 +12,7 @@ const (
 )
 
 const (
-	VadInactiveTimeout      = 100                      // 経ったらvadのactiveをfalseに ms
+	VadInactiveTimeout      = 50                       // 経ったらvadのactiveをfalseに ms
 	VadFinishTalkingTimeout = VadInactiveTimeout + 100 // 経ったら喋り終わった ms
 	VadActiveTime           = 50                       // 経ったらvadのactiveをtrueに ms
 )
@@ -20,7 +20,7 @@ const (
 const (
 	Location       = "us-central1"
 	ProjectID      = "chumchat"
-	GenAIModelName = "gemini-1.5-flash"
+	GenAIModelName = "gemini-2.0-flash-exp"
 )
 
 const SystemPrompt = `
@@ -30,7 +30,7 @@ Please respond in 1-2 sentences.
 
 const (
 	IsSkipWhenOutput = true
-	OutputSkipTime   = 50 // ms
+	OutputSkipTime   = 1000 // ms
 )
 
 const SSTSameDistance = 5

@@ -3,6 +3,9 @@ package main
 import (
 	"encoding/binary"
 	"fmt"
+	"io"
+	"os"
+	"strings"
 	"time"
 
 	"log"
@@ -18,7 +21,26 @@ import (
 	"github.com/kizuna-org/chumchat-grpc-poc/internal/vars"
 )
 
+var ts *tts.TextToSpeech
+var as *audio.AudioStream
+
+var a []int16
+
 func main() {
+	file, err := os.Open("./a.wav")
+	if err != nil {
+		log.Fatal(err)
+	}
+	data, err := io.ReadAll(file)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	a, err = util.BytesToInt16Binary(data, binary.LittleEndian)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	// Initialize
 	audioStream, err := audio.NewAudioStream()
 	if err != nil {
@@ -31,6 +53,9 @@ func main() {
 		log.Fatal(err)
 	}
 	defer tts.Close()
+
+	ts = tts
+	as = audioStream
 
 	llm, err := llm.NewLLMObject(vars.SystemPrompt)
 	if err != nil {
@@ -68,6 +93,7 @@ func getSttOnRes(llm *llm.LLMObject) func(*speechpb.StreamingRecognizeResponse) 
 	// lastText := ""
 
 	return func(resp *speechpb.StreamingRecognizeResponse) error {
+		as.Output(a)
 		fmt.Println("onRes:")
 		for i, result := range resp.Results {
 			if i != 0 {
@@ -83,12 +109,23 @@ func getSttOnRes(llm *llm.LLMObject) func(*speechpb.StreamingRecognizeResponse) 
 			if len(result.Alternatives) > 0 {
 				text := result.Alternatives[0].Transcript
 
-				if result.IsFinal {
-					err := llm.GenerateContentStream(text)
-					if err != nil {
-						return err
-					}
+				// if result.IsFinal {
+				// err := llm.GenerateContentStream(text)
+				// if err != nil {
+				// 	return err
+				// }
+				// }
+
+				out, err := ts.Speech(text)
+				if err != nil {
+					return err
 				}
+
+				data, err := util.BytesToInt16Binary(out, binary.LittleEndian)
+				if err != nil {
+					return err
+				}
+				as.Output(data)
 			}
 		}
 		return nil
@@ -101,6 +138,12 @@ func getLlmOnRes(tts *tts.TextToSpeech, audioStream *audio.AudioStream) func(res
 			fmt.Printf("Text: %s\n", part)
 
 			text := fmt.Sprint(part)
+			text = strings.TrimSpace(text)
+
+			if text == "" {
+				continue
+			}
+
 			data, err := tts.Speech(text)
 			if err != nil {
 				log.Fatal(err)

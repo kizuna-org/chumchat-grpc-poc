@@ -2,7 +2,9 @@ package tts
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"strings"
 
 	texttospeech "cloud.google.com/go/texttospeech/apiv1"
 	"cloud.google.com/go/texttospeech/apiv1/texttospeechpb"
@@ -37,6 +39,13 @@ func (tts *TextToSpeech) Close() error {
 }
 
 func (tts *TextToSpeech) Speech(text string) ([]byte, error) {
+	text = fmt.Sprint(text)
+	text = strings.TrimSpace(text)
+
+	if text == "" {
+		return nil, nil
+	}
+
 	req := texttospeechpb.SynthesizeSpeechRequest{
 		Input: &texttospeechpb.SynthesisInput{
 			InputSource: &texttospeechpb.SynthesisInput_Text{Text: text},

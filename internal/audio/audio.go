@@ -2,7 +2,6 @@ package audio
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -111,7 +110,7 @@ func playAudio(as *AudioStream) {
 			as.globalOutput = as.globalOutput[copyLength:]
 			as.globalOutputMutex.Unlock()
 
-			fmt.Printf("Copied %d elements to as.output. Remaining globalOutput: %d\n", copyLength, len(as.globalOutput))
+			// fmt.Printf("Copied %d elements to as.output. Remaining globalOutput: %d\n", copyLength, len(as.globalOutput))
 
 			err := as.stream.Write()
 			if err != nil {
@@ -119,6 +118,8 @@ func playAudio(as *AudioStream) {
 			}
 
 			as.lastOutput = time.Now()
+
+			time.Sleep(time.Duration(vars.FramesPerBuffer) * time.Second / time.Duration(vars.SampleRate))
 		}
 	}
 }
