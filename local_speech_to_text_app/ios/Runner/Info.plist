@@ -45,5 +45,14 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	
+	<key>NSMicrophoneUsageDescription</key>
+	<string>マイクへのアクセスを許可して、音声入力を文字起こしするために使用します。</string>
+	<!-- 必要に応じてインターネット権限も追加 -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+			<key>NSAllowsArbitraryLoads</key>
+			<true/>
+	</dict>
 </dict>
 </plist>
