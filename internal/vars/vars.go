@@ -20,7 +20,7 @@ const (
 const (
 	Location       = "us-central1"
 	ProjectID      = "chumchat"
-	GenAIModelName = "gemini-2.0-flash-exp"
+	GenAIModelName = "gemini-2.0-flash-lite-preview-02-05"
 )
 
 const SystemPrompt = `

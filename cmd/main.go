@@ -109,23 +109,23 @@ func getSttOnRes(llm *llm.LLMObject) func(*speechpb.StreamingRecognizeResponse) 
 			if len(result.Alternatives) > 0 {
 				text := result.Alternatives[0].Transcript
 
-				// if result.IsFinal {
-				// err := llm.GenerateContentStream(text)
+				if result.IsFinal {
+					err := llm.GenerateContentStream(text)
+					if err != nil {
+						return err
+					}
+				}
+
+				// out, err := ts.Speech(text)
 				// if err != nil {
 				// 	return err
 				// }
+
+				// data, err := util.BytesToInt16Binary(out, binary.LittleEndian)
+				// if err != nil {
+				// 	return err
 				// }
-
-				out, err := ts.Speech(text)
-				if err != nil {
-					return err
-				}
-
-				data, err := util.BytesToInt16Binary(out, binary.LittleEndian)
-				if err != nil {
-					return err
-				}
-				as.Output(data)
+				// as.Output(data)
 			}
 		}
 		return nil
